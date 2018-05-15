@@ -167,9 +167,10 @@ public class UssdManager {
                             //    ussdResponse.setMessageTitle(ex+"^");
                             
                             menus.add("^1. Vend Airtime");
-                            menus.add("^2. Mini Statement ");
-                            menus.add("^3. Check balance");
-                            menus.add("^4. Change PIN");
+                            menus.add("^2. Pending request");
+                            menus.add("^3. Mini Statement ");
+                            menus.add("^4. Check balance");
+                            menus.add("^5. Change PIN");
                             ussdResponse.setMenus(menus);
                             
                             ussdResponse.setClientState("StartAsRetailerChoice");
@@ -211,8 +212,8 @@ public class UssdManager {
                                 continue;
                             }
                         case "StartAsSubscriber":
-                            
-                            String inputs[]=this.getUssdInput().replaceAll(this.shortCode,"shortcode").split("\\*");
+                            String tmp=this.getUssdInput().replaceAll(this.shortCode,"shortcode");
+                            String inputs[]=tmp.split("\\*");
                             String retailerCode=null;
                             
                             if(inputs.length<2){
@@ -262,27 +263,26 @@ public class UssdManager {
                             
                             switch(input){
                                 case "1":
-                                    // retailer=this.getRetaileryMsisdn(this.MSISDN);
-                                    this.pendingList=this.getPendingRequests(this.MSISDN);
-                                    
-                                    if(pendingList!=null && pendingList.getBody()!=null && pendingList.getBody().size()>0){
-                                        for(Integer i=1;i<=pendingList.getBody().size();i++){
-                                            availableRequest.put(""+i, pendingList.getBody().get(i-1));
-                                            
-                                        }
-                                        currentClientState="showVendTypes";
-                                    }
-                                    else
-                                        currentClientState="startDirectVend";
-                                    
+                                    currentClientState="startDirectVend";
                                     continue;
                                 case "2":
-                                    currentClientState="miniStatementStart";
+                                    
+                                    this.pendingList=null;
+                                    this.pendingList=this.getPendingRequests(this.MSISDN);
+                                    if(pendingList!=null && pendingList.getBody()!=null)
+                                        for(Integer i=1;i<=pendingList.getBody().size();i++){
+                                            availableRequest.put(""+i, pendingList.getBody().get(i-1));
+                                        }
+                                    
+                                    currentClientState="listPendingRequests";
                                     continue;
                                 case "3":
-                                    currentClientState="checkBalanceStart";
+                                    currentClientState="miniStatementStart";
                                     continue;
                                 case "4":
+                                    currentClientState="checkBalanceStart";
+                                    continue;
+                                case "5":
                                     currentClientState="changePIN";
                                     continue;
                                 default:
@@ -390,7 +390,7 @@ public class UssdManager {
                             
                         case "listPendingRequests":
                             
-                            if(pendingList!=null){
+                            if(pendingList!=null && pendingList.getBody()!=null){
                                 String userNumber;
                                 Integer localAmount;
                                 String message="";
@@ -402,7 +402,7 @@ public class UssdManager {
                                 }
                                 ussdResponse.setMessageTitle(message);
                             }else{
-                                ussdResponse.setMessageTitle("A issue with list of requests, strat again");
+                                ussdResponse.setMessageTitle("No pending Request");
                                 ussdResponse.setFreeFlow("B");
                             }
                             menus=new ArrayList<>();
