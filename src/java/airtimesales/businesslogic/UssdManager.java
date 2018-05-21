@@ -18,6 +18,7 @@ import airtimesales.models.retails.IsRetailerResponse;
 import airtimesales.models.retails.PendingRequestsResponse;
 import airtimesales.models.retails.ResultGeneralItem;
 import airtimesales.models.retails.Retailer;
+import airtimesales.models.retails.RetailerByMsisdnResponse;
 import airtimesales.models.retails.VoucherGenerationRequest;
 import airtimesales.models.retails.VoucherGenerationResponse;
 import airtimesales.models.subscriber.SubAIrtimeVendIniRequest;
@@ -85,7 +86,7 @@ public class UssdManager {
     private ConcurrentHashMap<String, Object> availableRequest = new ConcurrentHashMap<>();
     
     private PendingRequestsResponse pendingList=null;
-    private Retailer retailer=null;
+    private String retailerShortCode=null;
     private ResultGeneralItem selectedPendingRequest;
     private Integer loginTries=0;
     private  VendRequest vRequest=null;
@@ -151,6 +152,7 @@ public class UssdManager {
                 boolean doExit=false;
                 while(!doExit){
                     if(!currentClientState.equals("0")){
+                        
                         this.setResumePreviousState(currentClientState);
                         setPreviousUssdInput(getUssdInput());
                     }
@@ -159,7 +161,6 @@ public class UssdManager {
                     {
                         
                         case "StartAsRetailer":
-                            String msisdn=ussdRequest.getMsisdn();
                             ussdResponse.setMessageTitle("Airtime");
                             menus=new ArrayList<>();
                             
@@ -169,7 +170,7 @@ public class UssdManager {
                             menus.add("^1. Vend Airtime");
                             menus.add("^2. Pending request");
                             menus.add("^3. Mini Statement ");
-                            menus.add("^4. Check balance");
+                            menus.add("^4. My account");
                             menus.add("^5. Change PIN");
                             ussdResponse.setMenus(menus);
                             
@@ -216,38 +217,59 @@ public class UssdManager {
                             String inputs[]=tmp.split("\\*");
                             String retailerCode=null;
                             
-                            if(inputs.length<2){
-                                this.subscriber=this.getSubscriberByMsisdn(this.MSISDN);
-                                ussdResponse.setMessageTitle("Your User Number is: "+subscriber.getId());
-                            }
-                            else{
-                                retailerCode=inputs[1];
-                                
-                                if(this.isValidInteger(inputs[2])){
-                                    amount=Integer.parseInt(inputs[2]);
-                                }
-                                
-                                
-                                if(retailerCode==null || amount==null){
-                                    ussdResponse.setMessageTitle("Invalid request !");
-                                }else{
-                                    Retailer retailer=this.getRetailerByCode(retailerCode);
-                                    Subscriber subscriber=this.getSubscriberByMsisdn(this.MSISDN);
+                            switch(inputs.length){
+                                case 1:
+                                    this.subscriber=this.getSubscriberByMsisdn(this.MSISDN);
+                                    ussdResponse.setMessageTitle("Your User Number is: "+subscriber.getId());
+                                    break;
+                                case 2:
+                                    VoucherRedeemRequest voucherRedeemRequest=new VoucherRedeemRequest();
+                                    voucherRedeemRequest.setTelephoneNumber(this.MSISDN);
+                                    voucherRedeemRequest.setTransactionId(CommonLibrary.generateRandomLong(10)+"");
+                                    voucherRedeemRequest.setVoucher(inputs[1]);
+                                    String voucherRedeemResponse= this.voucherRedeem(voucherRedeemRequest);
                                     
-                                    SubAirtimeVendInitResponse SubAirtimeVendInitResponse=this.sendSubscriberAirtimeRequest(retailer,subscriber,amount);
-                                    
-                                    if(SubAirtimeVendInitResponse!=null){
-                                        ussdResponse.setMessageTitle("Request of "+amount +" Airtime, sent successfully to Retailer "+retailer.getId());
+                                    if(voucherRedeemResponse==null){
+                                        ussdResponse.setMessageTitle("A problem occured during your voucher ["+inputs[1]+"] redeeming^ Check your voucher number and try again");
                                     }else{
-                                        ussdResponse.setMessageTitle("Issue happen during the sending of your request");
+                                        ussdResponse.setMessageTitle(voucherRedeemResponse);
                                     }
-                                }
+                                    this.ussdResponse.setFreeFlow("B");
+                                    break;
+                                    
+                                case 3:
+                                    retailerCode=inputs[1];
+                                    
+                                    if(this.isValidInteger(inputs[2])){
+                                        amount=Integer.parseInt(inputs[2]);
+                                    }
+                                    
+                                    
+                                    if(retailerCode==null || amount==null){
+                                        ussdResponse.setMessageTitle("Invalid request !");
+                                    }else{
+                                        Retailer retailer=this.getRetailerByCode(retailerCode);
+                                        Subscriber subscriber=this.getSubscriberByMsisdn(this.MSISDN);
+                                        
+                                        SubAirtimeVendInitResponse SubAirtimeVendInitResponse=this.sendSubscriberAirtimeRequest(retailer,subscriber,amount);
+                                        
+                                        if(SubAirtimeVendInitResponse!=null){
+                                            ussdResponse.setMessageTitle("Request of "+amount +" Airtime, sent successfully to Retailer "+retailer.getId());
+                                        }else{
+                                            ussdResponse.setMessageTitle("Issue happen during the sending of your request");
+                                        }
+                                    }
+                                    break;
+                                    
+                                default:
+                                    ussdResponse.setMessageTitle("Invalid  request !");
                             }
+                            
                             
                             menus=new ArrayList<>();
                             ussdResponse.setMenus(menus);
                             ussdResponse.setFreeFlow("B");
-                            ussdResponse.setClientState("checkBalance");
+                            ussdResponse.setClientState("GetMyAccountDetails");
                             this.setUssdResponse(ussdResponse);
                             
                             break;
@@ -280,7 +302,7 @@ public class UssdManager {
                                     currentClientState="miniStatementStart";
                                     continue;
                                 case "4":
-                                    currentClientState="checkBalanceStart";
+                                    currentClientState="MyAccountStart";
                                     continue;
                                 case "5":
                                     currentClientState="changePIN";
@@ -291,13 +313,13 @@ public class UssdManager {
                                     continue;
                                     
                             }
-                        case "checkBalanceStart":
+                        case "MyAccountStart":
                             ussdResponse.setMessageTitle("Enter PIN");
                             menus=new ArrayList<>();
                             ussdResponse.setMenus(menus);
                             
                             this.setResumePreviousState(ussdResponse.getClientState());
-                            ussdResponse.setClientState("checkBalance");
+                            ussdResponse.setClientState("GetMyAccountDetails");
                             this.setUssdResponse(ussdResponse);
                             
                             break;
@@ -311,7 +333,7 @@ public class UssdManager {
                             this.setUssdResponse(ussdResponse);
                             
                             break;
-                        case "checkBalance":
+                        case "GetMyAccountDetails":
                             
                             //build login request
                             LoginRequest request=new LoginRequest();
@@ -327,7 +349,9 @@ public class UssdManager {
                             
                             //check balance
                             BalanceResponse balance=this.getRetailerBalance();
-                            ussdResponse.setMessageTitle("Balance :"+balance.getBody().getBalance());
+                            this.retailerShortCode=this.getRetaileryMsisdn(this.MSISDN);
+                            ussdResponse.setMessageTitle("Balance:"+balance.getBody().getBalance()+""
+                                    + "^Short code: "+this.retailerShortCode);
                             menus=new ArrayList<>();
                             ussdResponse.setMenus(menus);
                             ussdResponse.setFreeFlow("B");
@@ -419,10 +443,35 @@ public class UssdManager {
                             if(this.selectedPendingRequest==null){
                                 currentClientState="listPendingRequests";
                             }else{
-                                currentClientState="ShowAirtimeOrVoucher";
+                                currentClientState="pendingRequestShowConfirmationRequest";
                             }
                             
                             continue;
+                            
+                        case "pendingRequestShowConfirmationRequest":
+                            ussdResponse.setMessageTitle("1. Confirm"
+                                    + "^2. Cancel");
+                            menus=new ArrayList<>();
+                            ussdResponse.setMenus(menus);
+                            ussdResponse.setFreeFlow("C");
+                            ussdResponse.setClientState("pendingRequestShowConfirmationChoice");
+                            this.setUssdResponse(ussdResponse);
+                            
+                            break;
+                            
+                        case "pendingRequestShowConfirmationChoice":
+                            switch(this.ussdInput){
+                                case "1":
+                                    currentClientState="ShowAirtimeOrVoucher";
+                                    continue;
+                                case "2":
+                                    currentClientState="CancelPendingRequest";
+                                    continue;
+                                default:
+                                    currentClientState="pendingRequestShowConfirmationRequest";
+                                    continue;
+                                    
+                            }
                             
                         case "ShowAirtimeOrVoucher":
                             ussdResponse.setMessageTitle("1. Airtime "
@@ -433,6 +482,26 @@ public class UssdManager {
                             this.setResumePreviousState(ussdResponse.getClientState());
                             ussdResponse.setClientState("receiveSelectedAirtimeOrVoucher");
                             this.setUssdResponse(ussdResponse);
+                            
+                            break;
+                        case "CancelPendingRequest":
+                            if(this.loginResponse==null){
+                                this.clientState2Resume2="CancelPendingRequest";
+                                currentClientState="loginRequestPin";
+                                continue;
+                            }
+                            AirtimeRequestUpdateRequest airtimeRequestUpdateRequest=new AirtimeRequestUpdateRequest();
+                            airtimeRequestUpdateRequest.setId(this.selectedPendingRequest.getId());
+                            airtimeRequestUpdateRequest.setStatus("CANCELLED");
+                            
+                            AirtimeRequestUpdateResponse airtimeRequestUpdateResponse= updateAirtimeRequest(airtimeRequestUpdateRequest);
+                            if(airtimeRequestUpdateResponse!=null && airtimeRequestUpdateResponse.getBody()!=null )
+                                ussdResponse.setMessageTitle("Request  "+airtimeRequestUpdateResponse.getBody().getStatus());
+                            
+                            else
+                                ussdResponse.setMessageTitle("Request status: unknown for now");
+                            
+                            this.ussdResponse.setFreeFlow("B");
                             
                             break;
                         case "receiveSelectedAirtimeOrVoucher":
@@ -469,11 +538,11 @@ public class UssdManager {
                             if(voucherGenerationResponse==null){
                                 ussdResponse.setMessageTitle("Somthing went wrong !");
                             }else{
-                                AirtimeRequestUpdateRequest airtimeRequestUpdateRequest=new AirtimeRequestUpdateRequest();
+                                airtimeRequestUpdateRequest=new AirtimeRequestUpdateRequest();
                                 airtimeRequestUpdateRequest.setId(this.selectedPendingRequest.getId());
                                 airtimeRequestUpdateRequest.setStatus("PROCESSED");
                                 
-                                AirtimeRequestUpdateResponse airtimeRequestUpdateResponse= updateAirtimeRequest(airtimeRequestUpdateRequest);
+                                airtimeRequestUpdateResponse= updateAirtimeRequest(airtimeRequestUpdateRequest);
                                 balance=this.getRetailerBalance();
                                 if(airtimeRequestUpdateResponse!=null)
                                     ussdResponse.setMessageTitle("Voucher "+voucherGenerationResponse.getBody().getVouchers().get(0)+ " well generated and sent [Request status: "+airtimeRequestUpdateResponse.getBody().getStatus()+"]");
@@ -483,13 +552,7 @@ public class UssdManager {
                                 
                             }
                             
-                            menus=new ArrayList<>();
-                            ussdResponse.setMenus(menus);
-                            ussdResponse.setFreeFlow("B");
-                            this.setResumePreviousState(ussdResponse.getClientState());
-                            ussdResponse.setClientState("receiveAmount");
-                            this.setUssdResponse(ussdResponse);
-                            
+                            this.ussdResponse.setFreeFlow("B");
                             break;
                             
                         case "vendAirtimeForPendingRequest":
@@ -502,22 +565,23 @@ public class UssdManager {
                             VendResponse vendResponse=this.vendAirtime(this.vRequest);
                             
                             if(vendResponse.getCode().equals("200")){
-                                AirtimeRequestUpdateRequest airtimeRequestUpdateRequest=new AirtimeRequestUpdateRequest();
+                                airtimeRequestUpdateRequest=new AirtimeRequestUpdateRequest();
                                 airtimeRequestUpdateRequest.setId(this.selectedPendingRequest.getId());
                                 airtimeRequestUpdateRequest.setStatus("PROCESSED");
                                 
-                                AirtimeRequestUpdateResponse airtimeRequestUpdateResponse= updateAirtimeRequest(airtimeRequestUpdateRequest);
+                                airtimeRequestUpdateResponse= updateAirtimeRequest(airtimeRequestUpdateRequest);
                                 balance=this.getRetailerBalance();
                                 if(airtimeRequestUpdateResponse!=null)
-                                    ussdResponse.setMessageTitle("Airtime worth "+this.amount+" sent [Request status: "+airtimeRequestUpdateResponse.getBody().getStatus()+"] "
+                                    ussdResponse.setMessageTitle("Airtime worth "+this.vRequest.getAmount()+" sent [Request status: "+airtimeRequestUpdateResponse.getBody().getStatus()+"] "
                                             + "^^ Balance :"+balance.getBody().getBalance());
                                 else
-                                    ussdResponse.setMessageTitle("Airtime worth "+this.amount+" sent [Request status: unknown] "
+                                    ussdResponse.setMessageTitle("Airtime worth "+this.vRequest.getAmount()+" sent [Request status: unknown] "
                                             + "^^ Balance :"+balance.getBody().getBalance());
                                 
                             }else{
                                 ussdResponse.setMessageTitle("Airtime Vend failed !");
                             }
+                            this.ussdResponse.setFreeFlow("B");
                             break;
                             
                         case "startDirectVend":
@@ -658,16 +722,17 @@ public class UssdManager {
                             }
                             
                             //get ratailer by msisdn and the function used is wrong because we shortcode
-                            retailer =this.getRetaileryMsisdn(this.MSISDN);
                             
-                            if(retailer==null){
+                            retailerShortCode=this.getRetaileryMsisdn(this.MSISDN);
+                            
+                            if(retailerShortCode==null){
                                 ussdResponse.setMessageTitle("System could not retrieve your code, contact sys admin");
                             }else
                                 if(this.loginResponse!=null && this.loginResponse.getCode().equals("200")){
                                     VendRequest vRequest=new VendRequest();
                                     vRequest.setAmount(this.amount);
                                     vRequest.setSubscriberTelephoneNumber(this.subscriber.getTelephoneNumber());
-                                    vRequest.setRetailerShortCode(retailer.getId());
+                                    vRequest.setRetailerShortCode(retailerShortCode);
                                     vendResponse=this.vendAirtime(vRequest);
                                     
                                     if(vendResponse.getCode().equals("200")){
@@ -766,8 +831,9 @@ public class UssdManager {
         }
     }
     
-    private Subscriber getSubscriberByMsisdn(String msiddn){
-        Response response=CommonLibrary.sendRESTRequest(dmdProxyUrl+"/dms/subscriber/"+msiddn,"","", "GET");
+    
+    private Subscriber getSubscriberByMsisdn(String msisdn){
+        Response response=CommonLibrary.sendRESTRequest(dmdProxyUrl+"/dms/subscriber/"+msisdn,"","", "GET");
         
         String StrResponseBody=response.readEntity(String.class);
         Subscriber resp=(Subscriber)CommonLibrary.unmarshalling(StrResponseBody, Subscriber.class, "json");
@@ -775,14 +841,16 @@ public class UssdManager {
         return resp;
     }
     
-    private Retailer getRetaileryMsisdn(String msiddn){
-        Response response=CommonLibrary.sendRESTRequest(dmdProxyUrl+"/dms/subscriber/"+msiddn,"","", "GET");
+    private String getRetaileryMsisdn(String msisdn){
+        MultivaluedMap<String, Object> headers = new MultivaluedHashMap();
+        headers.add("Authorization", "Bearer "+this.loginResponse.getBody().getTokens().getAccess_token());
+        Response response=CommonLibrary.sendRESTRequest(dmdProxyUrl+"/dms/retailer/"+msisdn+"/shortcode","",headers,"", "GET");
         
         if(response.getStatus()==200){
             String StrResponseBody=response.readEntity(String.class);
-            Retailer retailer=(Retailer)CommonLibrary.unmarshalling(StrResponseBody, Retailer.class, "json");
+            RetailerByMsisdnResponse retailerByMsisdnResponse=(RetailerByMsisdnResponse)CommonLibrary.unmarshalling(StrResponseBody, RetailerByMsisdnResponse.class, "json");
             
-            return retailer;
+            return retailerByMsisdnResponse.getBody().getShortCode();
         }else{
             return null;
         }
@@ -885,6 +953,7 @@ public class UssdManager {
         headers.add("Authorization", "Bearer "+this.loginResponse.getBody().getTokens().getAccess_token());
         Response response=CommonLibrary.sendRESTRequest(dmdProxyUrl+"/dms/vend", jsonRequest,headers,MediaType.APPLICATION_JSON, "POST");
         
+        
         String StrResponseBody=response.readEntity(String.class);
         VendResponse vendResponse=(VendResponse)CommonLibrary.unmarshalling(StrResponseBody, VendResponse.class, "json");
         
@@ -933,7 +1002,6 @@ public class UssdManager {
         return loginResponse;
     }
     
-    
     private ChangePinResponse changePin(String oldPin,String newPin){
         MultivaluedMap<String, Object> headers = new MultivaluedHashMap();
         headers.add("Authorization", "Bearer "+this.loginResponse.getBody().getTokens().getAccess_token());
@@ -950,6 +1018,7 @@ public class UssdManager {
      *
      * @return
      */
+    
     public int getCurrentHour() {
         LocalTime localTime = LocalTime.now();
         return localTime.getHour();
@@ -960,6 +1029,7 @@ public class UssdManager {
      *
      * @return
      */
+    
     public String getStringDate() {
         LocalDate localTime = LocalDate.now();
         DateTimeFormatter formatter = DateTimeFormatter.ofPattern("yyyy-MM-dd");
